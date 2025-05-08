@@ -11,7 +11,7 @@ This is a simple, pure JavaScript web application to batch convert HEIC files to
 
 ## Getting Started
 
-1. Clone the repository (or just download the index.html file!).
+1. Clone the repository (or just download the `index.html` file!).
 2. Open `index.html` in your browser.
 3. Start converting your HEIC files locally and download the JPGs as ZIP!
 
