@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batch HEIC to JPG Converter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif; /* Using Inter font as preferred */
+        }
+        .file-input-label {
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        .file-input-label:hover {
+            background-color: #4f46e5; /* darker indigo on hover */
+        }
+        .convert-button {
+            transition: background-color 0.3s ease;
+        }
+        .convert-button:hover:not(:disabled) {
+            background-color: #10b981; /* darker green on hover */
+        }
+        .download-link {
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        .download-link:hover {
+            background-color: #f0f0f0;
+            color: #333;
+        }
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        /* Spinner animation */
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #09f;
+            animation: spin 1s ease infinite;
+        }
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div class="bg-white p-6 sm:p-8 md:p-10 rounded-xl shadow-2xl w-full max-w-2xl">
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl sm:text-4xl font-bold text-gray-800">Batch HEIC to JPG Converter</h1>
+            <p class="text-gray-600 mt-2">Convert your HEIC files to JPG format easily and quickly.</p>
+        </header>
+
+        <main>
+            <section class="mb-6">
+                <label for="heicFiles" class="block text-sm font-medium text-gray-700 mb-2">Select HEIC Files:</label>
+                <input type="file" id="heicFiles" multiple accept=".heic,.HEIC"
+                       class="block w-full text-sm text-gray-500
+                              file:mr-4 file:py-2 file:px-4
+                              file:rounded-lg file:border-0
+                              file:text-sm file:font-semibold
+                              file:bg-indigo-50 file:text-indigo-700
+                              hover:file:bg-indigo-100
+                              border border-gray-300 rounded-lg cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <p id="fileCount" class="text-xs text-gray-500 mt-1">0 files selected.</p>
+            </section>
+
+            <section class="mb-6 text-center">
+                <button id="convertButton"
+                        class="convert-button w-full sm:w-auto bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow-md disabled:opacity-50 disabled:cursor-not-allowed">
+                    Convert to JPG
+                </button>
+            </section>
+
+            <section id="progressSection" class="mb-6 text-center hidden">
+                <div id="spinner" class="spinner mx-auto mb-2 hidden"></div>
+                <p id="statusMessage" class="text-gray-700"></p>
+                <div class="w-full bg-gray-200 rounded-full h-2.5 mt-2 hidden">
+                    <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
+                </div>
+            </section>
+
+            <section id="downloadSection" class="hidden">
+                <h2 class="text-xl font-semibold text-gray-700 mb-3">Converted Files:</h2>
+                <div id="downloadLinksContainer" class="space-y-2 max-h-60 overflow-y-auto p-2 bg-gray-50 rounded-lg border border-gray-200">
+                    </div>
+                <button id="downloadAllButton" class="mt-4 w-full sm:w-auto bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hidden">
+                    Download All as ZIP
+                </button>
+            </section>
+        </main>
+
+        <footer class="mt-8 text-center">
+            <p class="text-xs text-gray-500">
+                Conversion is done in your browser. No files are uploaded to any server.
+            </p>
+        </footer>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+
+    <script>
+        // DOM Elements
+        const heicFilesInput = document.getElementById('heicFiles');
+        const fileCountDisplay = document.getElementById('fileCount');
+        const convertButton = document.getElementById('convertButton');
+        const progressSection = document.getElementById('progressSection');
+        const spinner = document.getElementById('spinner');
+        const statusMessage = document.getElementById('statusMessage');
+        const progressBar = document.getElementById('progressBar');
+        const progressBarContainer = progressBar.parentElement;
+        const downloadSection = document.getElementById('downloadSection');
+        const downloadLinksContainer = document.getElementById('downloadLinksContainer');
+        const downloadAllButton = document.getElementById('downloadAllButton');
+
+        let selectedFiles = [];
+        let convertedBlobs = []; // To store converted blobs for zipping
+
+        // Update file count on input change
+        heicFilesInput.addEventListener('change', (event) => {
+            selectedFiles = Array.from(event.target.files);
+            fileCountDisplay.textContent = `${selectedFiles.length} file(s) selected.`;
+            convertButton.disabled = selectedFiles.length === 0;
+            // Clear previous results
+            downloadLinksContainer.innerHTML = '';
+            downloadSection.classList.add('hidden');
+            progressSection.classList.add('hidden');
+            statusMessage.textContent = '';
+            progressBar.style.width = '0%';
+            progressBarContainer.classList.add('hidden');
+            downloadAllButton.classList.add('hidden');
+            convertedBlobs = [];
+        });
+
+        // Handle Convert Button Click
+        convertButton.addEventListener('click', async () => {
+            if (selectedFiles.length === 0) {
+                alert('Please select HEIC files first.');
+                return;
+            }
+
+            // Reset UI
+            convertButton.disabled = true;
+            progressSection.classList.remove('hidden');
+            spinner.classList.remove('hidden');
+            statusMessage.textContent = 'Initializing conversion...';
+            progressBarContainer.classList.remove('hidden');
+            progressBar.style.width = '0%';
+            downloadLinksContainer.innerHTML = ''; // Clear previous links
+            downloadSection.classList.add('hidden');
+            downloadAllButton.classList.add('hidden');
+            convertedBlobs = [];
+
+            let filesProcessed = 0;
+
+            for (let i = 0; i < selectedFiles.length; i++) {
+                const file = selectedFiles[i];
+                const originalFileName = file.name;
+                const targetFileName = originalFileName.replace(/\.(heic|HEIC)$/i, '.jpg');
+
+                statusMessage.textContent = `Converting ${originalFileName} (${i + 1} of ${selectedFiles.length})...`;
+
+                try {
+                    // heic2any options:
+                    // { toType: "image/jpeg", quality: 0.8 } // for JPG
+                    // { toType: "image/png" } // for PNG
+                    // { toType: "image/gif" } // for GIF
+                    const conversionResult = await heic2any({
+                        blob: file,
+                        toType: "image/jpeg",
+                        quality: 0.9, // Adjust quality (0 to 1)
+                    });
+
+                    // heic2any can return a single blob or an array if the HEIC contains multiple images
+                    const blobsToProcess = Array.isArray(conversionResult) ? conversionResult : [conversionResult];
+
+                    for (let j = 0; j < blobsToProcess.length; j++) {
+                        const convertedBlob = blobsToProcess[j];
+                        const finalFileName = blobsToProcess.length > 1 ? `${targetFileName.replace('.jpg', '')}_${j+1}.jpg` : targetFileName;
+                        
+                        convertedBlobs.push({ name: finalFileName, blob: convertedBlob });
+
+                        // Create a download link
+                        const downloadUrl = URL.createObjectURL(convertedBlob);
+                        const link = document.createElement('a');
+                        link.href = downloadUrl;
+                        link.download = finalFileName;
+                        link.textContent = `Download ${finalFileName}`;
+                        link.className = 'download-link block w-full bg-white p-3 rounded-md border border-gray-300 text-indigo-600 hover:bg-gray-50 text-sm text-center sm:text-left';
+                        
+                        const listItem = document.createElement('div');
+                        listItem.appendChild(link);
+                        downloadLinksContainer.appendChild(listItem);
+                    }
+
+                } catch (error) {
+                    console.error('Error converting file:', originalFileName, error);
+                    const errorP = document.createElement('p');
+                    errorP.textContent = `Error converting ${originalFileName}: ${error.message || 'Unknown error'}`;
+                    errorP.className = 'text-red-500 text-sm';
+                    downloadLinksContainer.appendChild(errorP);
+                }
+
+                filesProcessed++;
+                const progressPercentage = (filesProcessed / selectedFiles.length) * 100;
+                progressBar.style.width = `${progressPercentage}%`;
+            }
+
+            // Finalize UI
+            spinner.classList.add('hidden');
+            if (convertedBlobs.length > 0) {
+                statusMessage.textContent = 'Conversion complete! Your files are ready for download.';
+                downloadSection.classList.remove('hidden');
+                if (convertedBlobs.length > 1 && typeof JSZip !== 'undefined') {
+                    downloadAllButton.classList.remove('hidden');
+                }
+            } else {
+                statusMessage.textContent = 'Conversion finished, but no files were successfully converted.';
+                 progressBarContainer.classList.add('hidden');
+            }
+            convertButton.disabled = false;
+            heicFilesInput.value = ''; // Clear the file input
+            selectedFiles = []; // Clear the selection array
+            fileCountDisplay.textContent = `0 file(s) selected.`;
+        });
+
+        // Handle Download All Button Click
+        downloadAllButton.addEventListener('click', async () => {
+            if (convertedBlobs.length === 0 || typeof JSZip === 'undefined') {
+                alert('No files to download or JSZip library not found.');
+                return;
+            }
+
+            downloadAllButton.disabled = true;
+            downloadAllButton.textContent = 'Zipping...';
+            spinner.classList.remove('hidden'); // Show spinner while zipping
+
+
+            const zip = new JSZip();
+            convertedBlobs.forEach(file => {
+                zip.file(file.name, file.blob);
+            });
+
+            try {
+                const zipBlob = await zip.generateAsync({ type: "blob" });
+                const downloadUrl = URL.createObjectURL(zipBlob);
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = "converted_jpgs.zip";
+                document.body.appendChild(link); // Required for Firefox
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(downloadUrl); // Clean up
+                statusMessage.textContent = 'All files downloaded as ZIP.';
+            } catch (error) {
+                console.error("Error creating ZIP file:", error);
+                statusMessage.textContent = 'Error creating ZIP file. Please download files individually.';
+                alert('Could not create ZIP file. Please try downloading files individually.');
+            } finally {
+                downloadAllButton.disabled = false;
+                downloadAllButton.textContent = 'Download All as ZIP';
+                spinner.classList.add('hidden');
+            }
+        });
+
+        // Initial button state
+        convertButton.disabled = true;
+    </script>
+</body>
+</html>
